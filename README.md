@@ -1,6 +1,6 @@
 # GIP - Get IP Addresses
 
-A lightweight Windows command-line tool that lists IP addresses of all active network adapters.
+A lightweight Windows command-line tool that lists IP addresses of all active network adapters and can scan subnets for active hosts.
 
 ## Features
 
@@ -8,6 +8,8 @@ A lightweight Windows command-line tool that lists IP addresses of all active ne
 - Colored output (adapter names highlighted) with graceful fallback on older systems
 - Optional IPv6 display
 - Loopback adapter hidden by default
+- Subnet scanner: ARP-based scan returning IP and MAC addresses for all active hosts
+- HTML report output with dark-themed, styled table
 - Compatible with Windows 10, Server 2016, Server 2019, and Server 2022
 
 ## Usage
@@ -18,13 +20,16 @@ gip [options]
 
 ### Options
 
-| Switch  | Description                                          |
-|---------|------------------------------------------------------|
-| `-6`    | Show both IPv4 and IPv6 addresses (default: IPv4 only) |
-| `-L`    | Include the Loopback adapter (hidden by default)     |
-| `-n`    | Disable colored output                               |
-| `-help` | Show help message                                    |
-| `-?`    | Show help message                                    |
+| Switch          | Description                                              |
+|-----------------|----------------------------------------------------------|
+| `-6`            | Show both IPv4 and IPv6 addresses (default: IPv4 only)   |
+| `-L`            | Include the Loopback adapter (hidden by default)         |
+| `-n`            | Disable colored output                                   |
+| `-scan <CIDR>`  | Scan a subnet and generate an HTML IP/MAC/hostname report |
+| `-o <file>`     | Output filename for `-scan` (default: `GIP-Scan_YYYY-MM-DD_HH-MM-SS.html`) |
+| `-v`            | Show version and build date                              |
+| `-help`         | Show help message                                        |
+| `-?`            | Show help message                                        |
 
 ### Example Output
 
@@ -35,6 +40,22 @@ Adapter: Ethernet
 Adapter: Wi-Fi
   IPv4: 10.0.0.50
 ```
+
+### Subnet Scan
+
+Scan an entire subnet and save a styled HTML report of all active hosts with their MAC addresses:
+
+```
+gip -scan 192.168.1.0/24
+gip -scan 10.0.0.0/24 -o network_report.html
+```
+
+The report includes:
+- Summary stats (total hosts scanned, active, no response)
+- Table of each responding host: IP address and MAC address
+- Dark-themed HTML — open directly in any browser
+
+> **Note:** Subnet scanning uses ARP and requires the tool to be run on the same Layer 2 network segment as the targets. Hosts on routed subnets will not respond to ARP.
 
 ### Note
 
@@ -72,6 +93,6 @@ g++ gip.cpp -o gip.exe -Os -s -liphlpapi -lws2_32
 
 ### Windows API Dependencies
 
-- `IPHLPAPI.DLL` — `GetAdaptersAddresses`
+- `IPHLPAPI.DLL` — `GetAdaptersAddresses`, `SendARP`
 - `WS2_32.dll` — `inet_ntop`
-- `KERNEL32.dll` — Console mode, `WideCharToMultiByte`
+- `KERNEL32.dll` — Console mode, `WideCharToMultiByte`, `CreateThread`
