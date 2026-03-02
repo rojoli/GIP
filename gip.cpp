@@ -35,6 +35,8 @@
 //                  -scan.  If omitted, the file is named automatically:
 //                    GIP-Scan_YYYY-MM-DD_HH-MM-SS.html
 //
+//   -d             Use dark mode for the HTML report (default: light mode).
+//
 //   -v  -version   Print the version string and exit.
 //
 //   -help  -?      Print this usage summary and exit.
@@ -433,7 +435,7 @@ static bool parseCIDR(const char *cidr, DWORD *netHost, int *prefix) {
 // The generated filename defaults to "GIP-Scan_YYYY-MM-DD_HH-MM-SS.html"
 // if no -o argument was provided.
 // ---------------------------------------------------------------------------
-static int runScan(const char *subnet, const char *outFile) {
+static int runScan(const char *subnet, const char *outFile, bool darkMode) {
     // Build default filename GIP-Scan_YYYY-MM-DD_HH-MM-SS.html if none given
     char generatedName[64];
     if (!outFile) {
@@ -523,14 +525,38 @@ static int runScan(const char *subnet, const char *outFile) {
 
     // Emit the HTML document: header, embedded CSS, stat cards, table header.
     // %% escapes literal '%' inside a printf format string.
-    fprintf(f,
-"<!DOCTYPE html>\n"
-"<html lang=\"en\">\n"
-"<head>\n"
-"<meta charset=\"UTF-8\">\n"
-"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
-"<title>Subnet Scan &mdash; %s</title>\n"
-"<style>\n"
+
+    // Light mode CSS
+    const char *lightCSS =
+"*{box-sizing:border-box;margin:0;padding:0}\n"
+"body{font-family:'Segoe UI',Arial,sans-serif;background:#f8f9fa;color:#212529;min-height:100vh}\n"
+"header{background:linear-gradient(135deg,#ffffff 0%%,#f0f1f3 100%%);padding:2rem 2.5rem;border-bottom:2px solid #0d6efd}\n"
+"h1{font-size:1.6rem;color:#0d6efd;letter-spacing:1px}\n"
+"h1 .sub{color:#198754;font-size:.85rem;font-weight:normal;margin-left:1rem;letter-spacing:0}\n"
+".meta{color:#6c757d;margin-top:.5rem;font-size:.85rem}\n"
+".stats{display:flex;gap:1rem;padding:1.2rem 2.5rem;background:#ffffff;border-bottom:1px solid #dee2e6;flex-wrap:wrap}\n"
+".card{background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:.8rem 1.4rem;text-align:center;min-width:110px}\n"
+".card .v{font-size:2rem;font-weight:700;color:#0d6efd}\n"
+".card .l{font-size:.7rem;color:#6c757d;text-transform:uppercase;letter-spacing:1px;margin-top:.2rem}\n"
+".card.ok .v{color:#198754}\n"
+".card.no .v{color:#adb5bd}\n"
+".wrap{padding:1.5rem 2.5rem 3rem}\n"
+"table{width:100%%;border-collapse:collapse;font-size:.9rem;border:1px solid #dee2e6;border-radius:6px;overflow:hidden}\n"
+"thead th{background:#e9ecef;padding:.8rem 1.2rem;text-align:left;font-size:.7rem;text-transform:uppercase;"
+"letter-spacing:1.5px;color:#495057;border-bottom:2px solid #0d6efd;white-space:nowrap}\n"
+"tbody tr{border-bottom:1px solid #dee2e6;transition:background .1s}\n"
+"tbody tr:hover{background:#f0f1f3}\n"
+"tbody tr:last-child{border-bottom:none}\n"
+"td{padding:.7rem 1.2rem;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:.88rem}\n"
+".n{color:#adb5bd;width:50px}\n"
+".ip{color:#0d6efd}\n"
+".mac{color:#198754}\n"
+".host{color:#b45309}\n"
+".none{color:#adb5bd;font-style:italic}\n"
+"footer{text-align:center;padding:1.2rem;color:#adb5bd;font-size:.75rem;border-top:1px solid #dee2e6}\n";
+
+    // Dark mode CSS
+    const char *darkCSS =
 "*{box-sizing:border-box;margin:0;padding:0}\n"
 "body{font-family:'Segoe UI',Arial,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh}\n"
 "header{background:linear-gradient(135deg,#161b22 0%%,#0d1117 100%%);padding:2rem 2.5rem;border-bottom:2px solid #238636}\n"
@@ -556,7 +582,19 @@ static int runScan(const char *subnet, const char *outFile) {
 ".mac{color:#3fb950}\n"
 ".host{color:#e3b341}\n"
 ".none{color:#484f58;font-style:italic}\n"
-"footer{text-align:center;padding:1.2rem;color:#484f58;font-size:.75rem;border-top:1px solid #21262d}\n"
+"footer{text-align:center;padding:1.2rem;color:#484f58;font-size:.75rem;border-top:1px solid #21262d}\n";
+
+    const char *css = darkMode ? darkCSS : lightCSS;
+
+    fprintf(f,
+"<!DOCTYPE html>\n"
+"<html lang=\"en\">\n"
+"<head>\n"
+"<meta charset=\"UTF-8\">\n"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+"<title>Subnet Scan &mdash; %s</title>\n"
+"<style>\n"
+"%s"
 "</style>\n"
 "</head>\n"
 "<body>\n"
@@ -573,7 +611,7 @@ static int runScan(const char *subnet, const char *outFile) {
 "<table>\n"
 "<thead><tr><th>#</th><th>IP Address</th><th>MAC Address</th><th>Hostname</th></tr></thead>\n"
 "<tbody>\n",
-        subnet, subnet, ts, (unsigned long)total, alive, (int)total - alive);
+        subnet, css, subnet, ts, (unsigned long)total, alive, (int)total - alive);
 
     // Emit one table row per alive host.
     // Hosts without a resolved name display an em-dash styled with the "none" CSS class.
@@ -625,6 +663,7 @@ static void printHelp() {
         "  -6             Show both IPv4 and IPv6 addresses (default: IPv4 only)\n"
         "  -L             Include the Loopback adapter (hidden by default)\n"
         "  -n             Disable colored output\n"
+        "  -d             Use dark mode for the HTML scan report (default: light)\n"
         "  -scan <CIDR>   Scan a subnet and save IP/MAC/hostname report as HTML\n"
         "                 Example: gip -scan 192.168.1.0/24\n"
         "  -o <file>      Output HTML filename for -scan\n"
@@ -659,12 +698,14 @@ int main(int argc, char *argv[]) {
     bool        showLoop   = false;
     bool        useColor   = true;
     bool        doScan     = false;
+    bool        darkMode   = false;
     const char *scanSubnet = nullptr;
     const char *outFile    = nullptr;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; i++) {
         if      (strcmp(argv[i], "-6")    == 0) showIPv6 = true;
+        else if (strcmp(argv[i], "-d")    == 0) darkMode = true;
         else if (strcmp(argv[i], "-n")    == 0) useColor = false;
         else if (strcmp(argv[i], "-L")    == 0) showLoop = true;
         else if (strcmp(argv[i], "-scan") == 0) {
@@ -696,7 +737,7 @@ int main(int argc, char *argv[]) {
 
     // If -scan was requested, delegate to runScan and exit immediately
     if (doScan) {
-        exitCode = runScan(scanSubnet, outFile);
+        exitCode = runScan(scanSubnet, outFile, darkMode);
         WSACleanup();
         return exitCode;
     }
