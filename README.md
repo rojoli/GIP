@@ -9,7 +9,7 @@ A lightweight Windows command-line tool that lists IP addresses of all active ne
 - Optional IPv6 display
 - Loopback adapter hidden by default
 - Subnet scanner: ARP-based scan returning IP and MAC addresses for all active hosts
-- HTML report output with dark-themed, styled table
+- HTML report output with light-themed styling (dark mode optional)
 - Compatible with Windows 10, Server 2016, Server 2019, and Server 2022
 
 ## Usage
@@ -23,6 +23,7 @@ gip [options]
 | Switch          | Description                                              |
 |-----------------|----------------------------------------------------------|
 | `-6`            | Show both IPv4 and IPv6 addresses (default: IPv4 only)   |
+| `-d`            | Use dark mode for HTML scan report (default: light mode) |
 | `-L`            | Include the Loopback adapter (hidden by default)         |
 | `-n`            | Disable colored output                                   |
 | `-scan <CIDR>`  | Scan a subnet and generate an HTML IP/MAC/hostname report |
@@ -53,7 +54,7 @@ gip -scan 10.0.0.0/24 -o network_report.html
 The report includes:
 - Summary stats (total hosts scanned, active, no response)
 - Table of each responding host: IP address and MAC address
-- Dark-themed HTML — open directly in any browser
+- Styled HTML (light mode default, use `-d` for dark mode) — open directly in any browser
 
 > **Note:** Subnet scanning uses ARP and requires the tool to be run on the same Layer 2 network segment as the targets. Hosts on routed subnets will not respond to ARP.
 
