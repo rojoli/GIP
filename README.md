@@ -82,13 +82,14 @@ In PowerShell, `gip` may resolve to the built-in `Get-NetIPAddress` alias. Use `
 ### Compile
 
 ```
-g++ gip.cpp -o gip.exe -Os -s -liphlpapi -lws2_32
+g++ gip.cpp -o gip.exe -Os -s -static -liphlpapi -lws2_32
 ```
 
 | Flag           | Purpose                                    |
 |----------------|--------------------------------------------|
 | `-Os`          | Optimize for binary size                   |
 | `-s`           | Strip debug symbols (smaller executable)   |
+| `-static`      | Static link C++ runtime (no DLL dependencies) |
 | `-liphlpapi`   | Link Windows IP Helper API                 |
 | `-lws2_32`     | Link Winsock2 library                      |
 
