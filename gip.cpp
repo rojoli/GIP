@@ -37,18 +37,21 @@
 //
 //   -d             Use dark mode for the HTML report (default: light mode).
 //
+//   -p             Ping 8.8.8.8 and report success or failure with round-trip time.
+//
 //   -v  -version   Print the version string and exit.
 //
 //   -help  -?      Print this usage summary and exit.
 //
 // Windows-specific APIs used:
-//   iphlpapi  — SendARP, GetAdaptersAddresses
+//   iphlpapi  — SendARP, GetAdaptersAddresses, IcmpSendEcho
 //   ws2_32    — Winsock (sockets, getnameinfo, inet_ntop / inet_pton)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#include <icmpapi.h>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -61,9 +64,9 @@
 // ─── Version ──────────────────────────────────────────────────────────────────
 
 #define GIP_VER_MAJOR 1
-#define GIP_VER_MINOR 1
+#define GIP_VER_MINOR 2
 #define GIP_VER_PATCH 0
-#define GIP_VERSION   "1.1.0"
+#define GIP_VERSION   "1.2.0"
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -646,6 +649,37 @@ static int runScan(const char *subnet, const char *outFile, bool darkMode) {
     return 0;
 }
 
+// ─── Ping Check ───────────────────────────────────────────────────────────────
+
+// ---------------------------------------------------------------------------
+// pingCheck — Send a single ICMP echo request to 8.8.8.8 via IcmpSendEcho.
+//
+// Returns the round-trip time in milliseconds on success, or -1 on failure.
+// Uses the Windows ICMP API (IcmpCreateFile / IcmpSendEcho / IcmpCloseHandle)
+// which does not require elevated privileges or raw socket access.
+// ---------------------------------------------------------------------------
+static int pingCheck() {
+    HANDLE hIcmp = IcmpCreateFile();
+    if (hIcmp == INVALID_HANDLE_VALUE) return -1;
+
+    DWORD dest;
+    inet_pton(AF_INET, "8.8.8.8", &dest);
+
+    char sendData[32] = "gip";
+    BYTE replyBuf[sizeof(ICMP_ECHO_REPLY) + sizeof(sendData)];
+
+    DWORD ret = IcmpSendEcho(hIcmp, dest, sendData, (WORD)sizeof(sendData),
+                             nullptr, replyBuf, sizeof(replyBuf), 3000);
+    IcmpCloseHandle(hIcmp);
+
+    if (ret > 0) {
+        PICMP_ECHO_REPLY reply = (PICMP_ECHO_REPLY)replyBuf;
+        if (reply->Status == IP_SUCCESS)
+            return (int)reply->RoundTripTime;
+    }
+    return -1;
+}
+
 // ─── Adapter List (original functionality) ───────────────────────────────────
 
 // Print the program version string to stdout
@@ -668,6 +702,7 @@ static void printHelp() {
         "                 Example: gip -scan 192.168.1.0/24\n"
         "  -o <file>      Output HTML filename for -scan\n"
         "                 (default: GIP-Scan_YYYY-MM-DD_HH-MM-SS.html)\n"
+        "  -p             Ping 8.8.8.8 and report success or failure\n"
         "  -v             Show version\n"
         "  -help          Show this help message\n"
         "  -?             Show this help message\n", stdout);
@@ -699,6 +734,7 @@ int main(int argc, char *argv[]) {
     bool        useColor   = true;
     bool        doScan     = false;
     bool        darkMode   = false;
+    bool        doPing     = false;
     const char *scanSubnet = nullptr;
     const char *outFile    = nullptr;
 
@@ -708,6 +744,7 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[i], "-d")    == 0) darkMode = true;
         else if (strcmp(argv[i], "-n")    == 0) useColor = false;
         else if (strcmp(argv[i], "-L")    == 0) showLoop = true;
+        else if (strcmp(argv[i], "-p")    == 0) doPing   = true;
         else if (strcmp(argv[i], "-scan") == 0) {
             if (i + 1 >= argc) {
                 fputs("-scan requires a CIDR argument (e.g. 192.168.1.0/24)\n", stderr);
@@ -734,6 +771,17 @@ int main(int argc, char *argv[]) {
     }
 
     int exitCode = 0;
+
+    // If -p was requested, ping 8.8.8.8 and exit
+    if (doPing) {
+        int rtt = pingCheck();
+        if (rtt >= 0)
+            printf("Ping 8.8.8.8: OK (%d ms)\n", rtt);
+        else
+            fputs("Ping 8.8.8.8: FAILED\n", stdout);
+        WSACleanup();
+        return (rtt >= 0) ? 0 : 1;
+    }
 
     // If -scan was requested, delegate to runScan and exit immediately
     if (doScan) {

@@ -1,4 +1,5 @@
 *.exe
+!gip.exe
 *.o
 *.obj
 GIP-Scan_*.html
