@@ -37,6 +37,8 @@
 //
 //   -d             Use dark mode for the HTML report (default: light mode).
 //
+//   -a             Show all adapter details: IP, netmask, default gateway, and DNS servers.
+//
 //   -p             Ping 8.8.8.8 and report success or failure with round-trip time.
 //
 //   -v  -version   Print the version string and exit.
@@ -64,9 +66,9 @@
 // ─── Version ──────────────────────────────────────────────────────────────────
 
 #define GIP_VER_MAJOR 1
-#define GIP_VER_MINOR 2
+#define GIP_VER_MINOR 3
 #define GIP_VER_PATCH 0
-#define GIP_VERSION   "1.2.0"
+#define GIP_VERSION   "1.3.0"
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -702,6 +704,7 @@ static void printHelp() {
         "                 Example: gip -scan 192.168.1.0/24\n"
         "  -o <file>      Output HTML filename for -scan\n"
         "                 (default: GIP-Scan_YYYY-MM-DD_HH-MM-SS.html)\n"
+        "  -a             Show all details: netmask, default gateway, and DNS servers\n"
         "  -p             Ping 8.8.8.8 and report success or failure\n"
         "  -v             Show version\n"
         "  -help          Show this help message\n"
@@ -735,6 +738,7 @@ int main(int argc, char *argv[]) {
     bool        doScan     = false;
     bool        darkMode   = false;
     bool        doPing     = false;
+    bool        showAll    = false;
     const char *scanSubnet = nullptr;
     const char *outFile    = nullptr;
 
@@ -744,6 +748,7 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[i], "-d")    == 0) darkMode = true;
         else if (strcmp(argv[i], "-n")    == 0) useColor = false;
         else if (strcmp(argv[i], "-L")    == 0) showLoop = true;
+        else if (strcmp(argv[i], "-a")    == 0) showAll  = true;
         else if (strcmp(argv[i], "-p")    == 0) doPing   = true;
         else if (strcmp(argv[i], "-scan") == 0) {
             if (i + 1 >= argc) {
@@ -826,7 +831,8 @@ int main(int argc, char *argv[]) {
     do {
         addrs = (PIP_ADAPTER_ADDRESSES)malloc(bufLen);
         if (!addrs) { fputs("Memory allocation failed\n", stderr); exitCode = 1; goto done; }
-        result = GetAdaptersAddresses(family, GAA_FLAG_INCLUDE_PREFIX, nullptr, addrs, &bufLen);
+        ULONG gaaFlags = GAA_FLAG_INCLUDE_PREFIX | (showAll ? GAA_FLAG_INCLUDE_GATEWAYS : 0);
+        result = GetAdaptersAddresses(family, gaaFlags, nullptr, addrs, &bufLen);
         if (result == ERROR_BUFFER_OVERFLOW) { free(addrs); addrs = nullptr; retries++; }
     } while (result == ERROR_BUFFER_OVERFLOW && retries < 3);
 
@@ -875,9 +881,66 @@ int main(int argc, char *argv[]) {
                 }
                 len += snprintf(buf + len, sizeof(buf) - len, "%s%s\n", label, ip);
 
+                // In -a mode, print netmask (IPv4) or prefix length (IPv6) for each address
+                if (showAll) {
+                    UINT8 prefix = ((IP_ADAPTER_UNICAST_ADDRESS_LH *)ua)->OnLinkPrefixLength;
+                    if (sa->sa_family == AF_INET) {
+                        struct in_addr mask;
+                        mask.s_addr = prefix ? htonl(~0u << (32 - prefix)) : 0;
+                        char maskbuf[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &mask, maskbuf, sizeof(maskbuf));
+                        len += snprintf(buf + len, sizeof(buf) - len, "  Netmask: %s\n", maskbuf);
+                    } else {
+                        len += snprintf(buf + len, sizeof(buf) - len, "  Prefix:  /%u\n", prefix);
+                    }
+                }
+
                 // Flush accumulated output if the buffer is nearly full
                 if ((size_t)len >= sizeof(buf) - 256) { fwrite(buf, 1, len, stdout); len = 0; }
             }
+
+            // In -a mode, print default gateway(s) and DNS servers for this adapter
+            if (showAll && printed) {
+                // Gateways — populated by GAA_FLAG_INCLUDE_GATEWAYS
+                bool firstGW = true;
+                for (PIP_ADAPTER_GATEWAY_ADDRESS_LH gw = ad->FirstGatewayAddress; gw; gw = gw->Next) {
+                    SOCKADDR *gsa = gw->Address.lpSockaddr;
+                    if (!gsa) continue;
+                    void *addrPtr; int fam;
+                    if      (gsa->sa_family == AF_INET)
+                        { addrPtr = &((sockaddr_in  *)gsa)->sin_addr;  fam = AF_INET;  }
+                    else if (gsa->sa_family == AF_INET6)
+                        { addrPtr = &((sockaddr_in6 *)gsa)->sin6_addr; fam = AF_INET6; }
+                    else continue;
+                    char gwbuf[INET6_ADDRSTRLEN];
+                    inet_ntop(fam, addrPtr, gwbuf, sizeof(gwbuf));
+                    len += snprintf(buf + len, sizeof(buf) - len,
+                                    firstGW ? "  Gateway: %s\n" : "           %s\n", gwbuf);
+                    firstGW = false;
+                    if ((size_t)len >= sizeof(buf) - 256) { fwrite(buf, 1, len, stdout); len = 0; }
+                }
+
+                // DNS servers
+                bool firstDNS = true;
+                for (PIP_ADAPTER_DNS_SERVER_ADDRESS_XP *dns = &ad->FirstDnsServerAddress;
+                     *dns; dns = &(*dns)->Next) {
+                    SOCKADDR *dsa = (*dns)->Address.lpSockaddr;
+                    if (!dsa) continue;
+                    void *addrPtr; int fam;
+                    if      (dsa->sa_family == AF_INET)
+                        { addrPtr = &((sockaddr_in  *)dsa)->sin_addr;  fam = AF_INET;  }
+                    else if (dsa->sa_family == AF_INET6)
+                        { addrPtr = &((sockaddr_in6 *)dsa)->sin6_addr; fam = AF_INET6; }
+                    else continue;
+                    char dnsbuf[INET6_ADDRSTRLEN];
+                    inet_ntop(fam, addrPtr, dnsbuf, sizeof(dnsbuf));
+                    len += snprintf(buf + len, sizeof(buf) - len,
+                                    firstDNS ? "  DNS:     %s\n" : "           %s\n", dnsbuf);
+                    firstDNS = false;
+                    if ((size_t)len >= sizeof(buf) - 256) { fwrite(buf, 1, len, stdout); len = 0; }
+                }
+            }
+
             if (printed) len += snprintf(buf + len, sizeof(buf) - len, "\n");
         }
         if (len > 0) fwrite(buf, 1, len, stdout);  // flush any remaining buffered output
